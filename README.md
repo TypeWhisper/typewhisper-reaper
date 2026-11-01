@@ -1,6 +1,6 @@
 # TypeWhisper for REAPER
 
-Two ReaScripts: one transcribes your recordings with TypeWhisper, the other cuts the passages you mark in the transcript into finished quotes.
+Three ReaScripts: one transcribes your recordings with TypeWhisper, the other two cut finished quotes from them, either from passages you mark in the transcript or straight from the quotes in your manuscript.
 
 ## Transcribe selected items
 
@@ -22,8 +22,8 @@ A ReaScript that sends the selected audio items to TypeWhisper on your Mac and a
 
 ## Installation
 
-1. Copy `TypeWhisper_Transcribe selected items.lua` and `TypeWhisper_Cut quotes from transcript.lua` to `~/Library/Application Support/REAPER/Scripts/`.
-2. In REAPER, open Actions > Show action list > New action > Load ReaScript and choose each file.
+1. Copy the three `TypeWhisper_*.lua` scripts and the `lib` folder into one folder, for example `~/Library/Application Support/REAPER/Scripts/TypeWhisper/`. The two quote scripts load `lib/quotes.lua` from next to themselves.
+2. In REAPER, open Actions > Show action list > New action > Load ReaScript and choose each `TypeWhisper_*.lua` file.
 3. Optional: assign a keyboard shortcut or toolbar button.
 
 ## Usage
@@ -52,9 +52,39 @@ What it does:
 - Starts each quote in the pause before its first word and ends it in the pause after its last word. The cut points are checked against the audio, so a soft onset or a last syllable that the transcript timing misses stays in, and the neighbouring words stay out.
 - Adds 10 ms fades, a 30 ms crossfade at the joints of a combined quote and a "Cut" ("Schnitt") marker at each joint.
 - Names each quote after its first and last words, for example "We didn't know … how big it would get".
-- Puts new quotes after the existing ones on the track, two seconds apart.
+- Asks where the quotes go: into a new project tab, or into this project after everything else, so they never play at the same time as the recording.
+- Running it again replaces the quotes and cut markers from the last run, also when you deleted the quotes track in between. Everything else stays.
+- Reports passages that differ from what was said and cuts where the speech runs through without a pause, so you can listen to those.
 
 Needs word timestamps: TypeWhisper 1.8.2 with an engine that reports them, such as Parakeet or ElevenLabs Scribe.
+
+## Cut quotes from manuscript
+
+Cuts the quotes of a radio or podcast manuscript in the order of the manuscript. There is nothing to mark: the manuscript is the cut list. Write it in Obsidian, any Markdown editor or as plain text, with each quote under a label line, the way radio manuscripts look anyway:
+
+```markdown
+**Host:**
+Anna Miller opened her bakery ten years ago. The hardest part came later:
+
+**Quote Miller, baker:**
+*"The first year was easy. The second one almost ended it."*
+
+Quote Miller:
+"We had no idea how expensive flour would get … and still, we never closed a single day."
+```
+
+1. Transcribe the interview with "Transcribe selected items" in the same project.
+2. Run `Script: TypeWhisper_Cut quotes from manuscript.lua` and choose the manuscript (`.md` or `.txt`).
+
+What it does:
+
+- Finds every quote under a label line: `Quote Name:`, `O-Ton Name:` or `Soundbite Name:`, with the quote below or on the same line. Markdown emphasis, highlights and quote marks don't matter; other labels such as `Overvoice:` are skipped.
+- `…` (or `...`) inside a quote is a cut, as usual in radio: the parts are joined with a crossfade and a "Cut" marker, even when they lie minutes apart. `…` at the very start or end only marks a fragment.
+- Small differences to what was said are fine, for example a corrected name. The report lists each one, manuscript against what was said, so the manuscript can be brought in line.
+- Names the quotes O1, O2, … with the speaker from the label and puts them on a track named after the manuscript, in a new project tab or after everything else in this project.
+- Run it again after editing the manuscript: it replaces its quotes and cut markers from the last run and leaves everything else alone. Each manuscript gets its own track.
+
+Cutting, fades and the report work as in "Cut quotes from transcript".
 
 ## Notes
 
@@ -65,10 +95,17 @@ Needs word timestamps: TypeWhisper 1.8.2 with an engine that reports them, such 
 
 ## Changes
 
+- Cut quotes from manuscript 0.1.0: first version, by Marcus Schuler.
+- Cut quotes from transcript 0.2.0: asks whether the quotes go into a new project tab or after everything else in the project; a new run replaces the quotes and cut markers of the last one; a cut between two close words goes into the quiet stretch of the gap, so the next word stays out even when its timing starts too late; names written as one word where the transcript has two ("TypeWhisper", "Type Whisper") are matched completely; the report shows what was said and names cuts without a pause. Shares its code with the manuscript script (`lib/quotes.lua`).
+- Transcribe selected items 0.2.2: no doubled regions in projects where an early 0.2.1 variant stored region numbers without their start.
 - Cut quotes from transcript 0.1.0: first version.
 - Transcribe selected items 0.2.1: speaker labels also with word timestamps (words take the speaker of their segment); inside a sentence only a pause of 3 seconds starts a new region, so regions end at sentence ends instead of breathing pauses; a new run replaces only the regions this script created (stored by region number and start in the project), not every region in its color; keeps the latest transcript of each recording for the quote script.
 - Transcribe selected items 0.2.0: direct file access instead of upload, one request per source file with cache, sentence-based regions, item notes with only the audible text, language per track, speaker labels, progress window, transcript and program text files, replaces its own regions on a new run.
 - Transcribe selected items 0.1.0: first version.
+
+## Contributors
+
+- Marcus Schuler: tested the scripts on real radio productions, contributed the speaker labels with word timestamps and the region record in 0.2.1, the placement of the quotes in 0.2.0 of "Cut quotes from transcript" and the script "Cut quotes from manuscript".
 
 ## License
 

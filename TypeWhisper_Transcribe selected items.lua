@@ -1,8 +1,12 @@
 -- @description TypeWhisper: Transcribe selected items
--- @version 0.2.1
+-- @version 0.2.2
 -- @author TypeWhisper
 -- @website https://www.typewhisper.com
 -- @changelog
+--   0.2.2
+--   - Projects where an early 0.2.1 variant ran (region numbers stored without their
+--     start) no longer get their regions doubled: those numbers count as the
+--     script's regions while they keep its color.
 --   0.2.1
 --   - Speaker labels also with word timestamps: words take the speaker of the
 --     segment they lie in (the API returns speakers per segment only).
@@ -565,10 +569,26 @@ end
 -- Projects where 0.2.0 already ran have no record yet (0.2.0 only stored its settings);
 -- there the color decides once. In a project the script never ran in, nothing counts
 -- as its region yet.
+-- Plain numbers without a start come from an early 0.2.1 variant; they count when the
+-- region still has the script's color, and are stored with their start from now on.
 local function load_own_regions(ran_before)
-  local own = {}
+  local own, numbers = {}, {}
   local found, list = reaper.GetProjExtState(0, SCRIPT_NAME, "regions")
-  for id, pos in (list or ""):gmatch("(%d+)@([%d%.]+)") do own[tonumber(id)] = tonumber(pos) end
+  for entry in (list or ""):gmatch("[^,]+") do
+    local id, pos = entry:match("^%s*(%d+)@([%d%.]+)%s*$")
+    if id then
+      own[tonumber(id)] = tonumber(pos)
+    elseif entry:match("^%s*%d+%s*$") then
+      numbers[tonumber(entry)] = true
+    end
+  end
+  if next(numbers) then
+    local _, markers, regions = reaper.CountProjectMarkers(0)
+    for i = 0, markers + regions - 1 do
+      local _, isrgn, pos, _, _, index, color = reaper.EnumProjectMarkers3(0, i)
+      if isrgn and numbers[index] and color == REGION_COLOR then own[index] = pos end
+    end
+  end
   return own, found ~= 0, found == 0 and ran_before
 end
 
