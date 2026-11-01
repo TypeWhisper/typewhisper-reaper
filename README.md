@@ -105,7 +105,7 @@ Cutting, fades and the report work as in "Cut quotes from transcript".
 
 ## Contributors
 
-- Marcus Schuler: tested the scripts on real radio productions, contributed the speaker labels with word timestamps and the region record in 0.2.1, the placement of the quotes in 0.2.0 of "Cut quotes from transcript" and the script "Cut quotes from manuscript".
+- [Marcus Schuler](https://schuler.media) ([@MarcusSchuler](https://x.com/MarcusSchuler) on X): tested the scripts on real radio productions, contributed the speaker labels with word timestamps and the region record in 0.2.1, the placement of the quotes in 0.2.0 of "Cut quotes from transcript" and the script "Cut quotes from manuscript".
 
 ## License
 
