@@ -137,6 +137,7 @@ local function json_decode(str)
   end
   return parse_value()
 end
+M.json_decode = json_decode
 
 ------------------------------------------------------------------------
 -- Matching text to words
@@ -302,10 +303,22 @@ function M.recordings()
   return list
 end
 
--- Word timestamps of a recording from the transcription script's latest result, or nil.
-function M.load_words(dir, rec)
-  local raw = M.read_file(dir .. "/TypeWhisper/latest/" .. M.basename(rec.path) .. ".json")
-  local ok, result = pcall(json_decode, raw or "")
+function M.dirname(path)
+  return path:match("^(.*)/[^/]+$") or "."
+end
+
+-- "<recording>.timestamps.json" next to the recording, as the TypeWhisper app and the
+-- transcription script write it.
+function M.timestamps_beside(audio_path)
+  return M.dirname(audio_path) .. "/" .. M.strip_extension(M.basename(audio_path)) .. ".timestamps.json"
+end
+
+-- Word timestamps from a TypeWhisper result file (the API's verbose JSON), or nil.
+-- Also returns the language of the result.
+function M.read_words(path)
+  local raw = M.read_file(path)
+  if not raw then return nil end
+  local ok, result = pcall(json_decode, raw)
   if not ok or type(result) ~= "table" or type(result.words) ~= "table" then return nil end
   local words = {}
   for _, w in ipairs(result.words) do
@@ -314,13 +327,32 @@ function M.load_words(dir, rec)
       words[#words + 1] = { text = text, norm = M.normalize(text), start = w.start, ["end"] = w["end"] }
     end
   end
-  return #words > 0 and words or nil
+  if #words == 0 then return nil end
+  return words, type(result.language) == "string" and result.language or nil
 end
 
--- Track names in the language of the recording's track.
-function M.names_for(track)
-  local _, language = reaper.GetSetMediaTrackInfo_String(track, "P_EXT:TypeWhisper_language", "", false)
-  return M.NAMES[(language or ""):sub(1, 2)] or M.NAMES.en
+-- Word timestamps of a recording in the project: the transcription script's latest
+-- result in this project first (the transcript file was made from it), then the file
+-- next to the recording. Sets rec.words and rec.language; returns rec.words.
+function M.load_words(dir, rec)
+  for _, path in ipairs({ dir .. "/TypeWhisper/latest/" .. M.basename(rec.path) .. ".json",
+    M.timestamps_beside(rec.path) }) do
+    local words, language = M.read_words(path)
+    if words then rec.words, rec.language = words, language; return words end
+  end
+  return nil
+end
+
+-- Track and marker names in the language of the recording: its track's setting, or
+-- the language of its transcript.
+function M.names_for(rec)
+  local language = ""
+  if rec.track then
+    local _, value = reaper.GetSetMediaTrackInfo_String(rec.track, "P_EXT:TypeWhisper_language", "", false)
+    language = value or ""
+  end
+  if language == "" then language = rec.language or "" end
+  return M.NAMES[language:sub(1, 2)] or M.NAMES.en
 end
 
 ------------------------------------------------------------------------
@@ -436,7 +468,8 @@ end
 -- Cuts the quotes of `plan` and puts them on the script's own track.
 --
 -- plan: list of { rec, words, pieces = { { first, last }, ... }, title = optional prefix,
---   label = optional prefix for notes }; rec.path and rec.track as from M.recordings().
+--   label = optional prefix for notes }; rec.path is the recording, rec.track a track
+--   that plays it (optional) and rec.language the language of its transcript (optional).
 -- opts:
 --   track_name   name of a new quotes track
 --   mark_key     P_EXT key that marks the script's own track, mark_value its value
@@ -450,7 +483,7 @@ end
 -- everything else. In this project a new run replaces the quotes and cut markers of the
 -- last one and leaves everything else alone. Returns false when the user cancelled.
 function M.place(plan, opts, notes)
-  local names = M.names_for(plan[1].rec.track)
+  local names = M.names_for(plan[1].rec)
   local answer = reaper.ShowMessageBox(opts.intro .. "\n\n" ..
     "Yes: put them in a new project tab.\n" ..
     "No: put them in this project, on the track \"" .. opts.track_name ..
@@ -549,7 +582,7 @@ function M.place(plan, opts, notes)
   end
   reaper.GetSetMediaTrackInfo_String(track, "P_EXT:" .. opts.mark_key, opts.mark_value, true)
 
-  local position = new_project and 0 or (content_end + M.GAP_AFTER_CONTENT)
+  local position = (new_project or content_end == 0) and 0 or (content_end + M.GAP_AFTER_CONTENT)
   local report, total, new_markers = {}, 0, {}
   for _, q in ipairs(plan) do
     local name = (q.title or "") .. M.quote_name(q.words, q.pieces)

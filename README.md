@@ -12,6 +12,9 @@ A ReaScript that sends the selected audio items to TypeWhisper on your Mac and a
 - The audible text of each item in its notes
 - A transcript file per recording (`<recording> - transcript.txt`, with timestamps and speakers) and a program text of all selected items in timeline order (`<project> - program text.txt`), both next to the project
 - Running it again replaces only the regions it created before (your own regions stay, whatever their color); unchanged files come from the cache (`TypeWhisper/` next to the project)
+- The word timestamps next to the recording as `<recording>.timestamps.json`, the same file the TypeWhisper app writes, so the quote scripts find them in any project
+- Optional: a Markdown transcript per recording for Obsidian, `<recording> - transcript.md`, in a folder you set as `MARKDOWN_FOLDER` at the top of the script, for example your vault. Its frontmatter names the recording and its timestamps; the text has a paragraph per speaker turn with time and speaker. See [Manuscript, transcript and recording](#manuscript-transcript-and-recording).
+- A transcript you edited, for example with `[[ ]]` marks for the quote script, is kept on a new run instead of being overwritten
 
 ## Requirements
 
@@ -73,7 +76,7 @@ Quote Miller:
 "We had no idea how expensive flour would get … and still, we never closed a single day."
 ```
 
-1. Transcribe the interview with "Transcribe selected items" in the same project.
+1. Link the transcript note in the manuscript's frontmatter (see below), or transcribe the interview with "Transcribe selected items" in the project.
 2. Run `Script: TypeWhisper_Cut quotes from manuscript.lua` and choose the manuscript (`.md` or `.txt`).
 
 What it does:
@@ -86,6 +89,31 @@ What it does:
 
 Cutting, fades and the report work as in "Cut quotes from transcript".
 
+### Manuscript, transcript and recording
+
+The manuscript script finds the interview through links, so it also works in an empty project and no matter whether the transcript comes from the TypeWhisper app or from REAPER:
+
+```markdown
+---
+interview: "[[MixPre-001 - transcript]]"
+---
+```
+
+The manuscript's frontmatter links the transcript note. The note's frontmatter names the recording and its word timestamps:
+
+```markdown
+---
+audio: "/Volumes/MixPre/MixPre-001.wav"
+timestamps: "/Volumes/MixPre/MixPre-001.timestamps.json"
+duration: 3612.4
+language: "de"
+---
+
+**[00:12:03] A:** …
+```
+
+"Transcribe selected items" writes such notes when `MARKDOWN_FOLDER` is set. Links work as in Obsidian: `[[name]]`, `[[folder/name]]`, `[[name|alias]]`, found anywhere in the vault. A manuscript can link several interviews. When a file has moved, the script also looks for it by name next to the note. Without a link it uses the recordings in the project and their timestamps.
+
 ## Notes
 
 - Each source file is transcribed once, even when it is cut into many items.
@@ -95,8 +123,10 @@ Cutting, fades and the report work as in "Cut quotes from transcript".
 
 ## Changes
 
+- Transcribe selected items 0.3.0: word timestamps next to the recording (`<recording>.timestamps.json`); optional Markdown transcript for Obsidian with the recording and its timestamps in the frontmatter (`MARKDOWN_FOLDER`); keeps transcripts you edited instead of overwriting them.
+- Cut quotes from manuscript 0.2.0: finds the interview through the manuscript's frontmatter link to the transcript note, also in an empty project; also finds the timestamps next to the recording.
 - Cut quotes from manuscript 0.1.0: first version, by Marcus Schuler.
-- Cut quotes from transcript 0.2.0: asks whether the quotes go into a new project tab or after everything else in the project; a new run replaces the quotes and cut markers of the last one; a cut between two close words goes into the quiet stretch of the gap, so the next word stays out even when its timing starts too late; names written as one word where the transcript has two ("TypeWhisper", "Type Whisper") are matched completely; the report shows what was said and names cuts without a pause. Shares its code with the manuscript script (`lib/quotes.lua`).
+- Cut quotes from transcript 0.2.0: asks whether the quotes go into a new project tab or after everything else in the project; a new run replaces the quotes and cut markers of the last one; a cut between two close words goes into the quiet stretch of the gap, so the next word stays out even when its timing starts too late; names written as one word where the transcript has two ("TypeWhisper", "Type Whisper") are matched completely; the report shows what was said and names cuts without a pause; also reads the timestamps next to the recording when the project has none. Shares its code with the manuscript script (`lib/quotes.lua`).
 - Transcribe selected items 0.2.2: no doubled regions in projects where an early 0.2.1 variant stored region numbers without their start.
 - Cut quotes from transcript 0.1.0: first version.
 - Transcribe selected items 0.2.1: speaker labels also with word timestamps (words take the speaker of their segment); inside a sentence only a pause of 3 seconds starts a new region, so regions end at sentence ends instead of breathing pauses; a new run replaces only the regions this script created (stored by region number and start in the project), not every region in its color; keeps the latest transcript of each recording for the quote script.

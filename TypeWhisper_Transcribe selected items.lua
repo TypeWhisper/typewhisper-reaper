@@ -1,8 +1,17 @@
 -- @description TypeWhisper: Transcribe selected items
--- @version 0.2.2
+-- @version 0.3.0
 -- @author TypeWhisper
 -- @website https://www.typewhisper.com
 -- @changelog
+--   0.3.0
+--   - Writes the word timestamps next to the recording as
+--     "<recording>.timestamps.json", the same file the TypeWhisper app writes, so the
+--     quote scripts find them in any project.
+--   - Optional Markdown transcript for Obsidian (MARKDOWN_FOLDER): frontmatter with the
+--     paths of the recording and its timestamps, a paragraph per speaker turn with
+--     time and speaker.
+--   - A transcript you edited (for example with [[ ]] marks for the quote script) is
+--     kept on a new run instead of being overwritten.
 --   0.2.2
 --   - Projects where an early 0.2.1 variant ran (region numbers stored without their
 --     start) no longer get their regions doubled: those numbers count as the
@@ -53,6 +62,14 @@ local MIN_REGION_SECONDS = 1.0    -- shorter regions are joined with a neighbour
 local MAX_PAUSE_SECONDS = 1.0     -- short regions are only joined across pauses up to this
 local SENTENCE_PAUSE_SECONDS = 3.0 -- inside a sentence, only a pause this long starts a new region
 local REGION_COLOR = reaper.ColorToNative(74, 144, 226) | 0x1000000
+-- Word timestamps as "<recording>.timestamps.json" next to the recording, where the
+-- quote scripts and the TypeWhisper app look for them.
+local WRITE_TIMESTAMPS_NEXT_TO_RECORDING = true
+-- Folder for a Markdown transcript per recording, "<recording> - transcript.md", for
+-- example your Obsidian vault or a folder in it: "~/Documents/Vault/Interviews".
+-- Empty: no Markdown transcript.
+local MARKDOWN_FOLDER = ""
+local MARKDOWN_PARAGRAPH_SECONDS = 60 -- a speaker's paragraph gets a new time stamp after this
 
 ------------------------------------------------------------------------
 
@@ -117,6 +134,35 @@ local function hash(s)
   local h = 5381
   for i = 1, #s do h = (h * 33 + s:byte(i)) & 0xFFFFFFFF end
   return string.format("%08x", h)
+end
+
+local function expand_home(path)
+  path = trim(path)
+  if path:sub(1, 2) == "~/" then return HOME .. path:sub(2) end
+  return path
+end
+
+local function dirname(path)
+  return path:match("^(.*)/[^/]+$") or "."
+end
+
+-- Writes a file the script made before, unless the user edited it since: an edited
+-- file differs from the copy of the last version the script wrote. Files from before
+-- that copy count as edited when `looks_edited` says so. Returns "written", "same",
+-- "kept" or "failed".
+local function write_unless_edited(path, content, copy_path, looks_edited)
+  local existing = read_file(path)
+  if existing == content then
+    write_file(copy_path, content)
+    return "same"
+  end
+  if existing then
+    local last = read_file(copy_path)
+    if (last and existing ~= last) or (not last and looks_edited(existing)) then return "kept" end
+  end
+  if not write_file(path, content) then return "failed" end
+  write_file(copy_path, content)
+  return "written"
 end
 
 ------------------------------------------------------------------------
@@ -506,6 +552,50 @@ local function labeled(g)
   return g.speaker and (g.speaker .. ": " .. g.text) or g.text
 end
 
+-- Markdown transcript for Obsidian: frontmatter with the recording and its word
+-- timestamps (the quote scripts follow these paths from a manuscript that links the
+-- note), then a paragraph per speaker turn with its time and speaker.
+local function markdown_transcript(job, groups, kind, timestamps_path)
+  local r = job.result
+  local lines = { "---", "audio: " .. json_string(job.path) }
+  if timestamps_path then lines[#lines + 1] = "timestamps: " .. json_string(timestamps_path) end
+  if tonumber(r.duration) then lines[#lines + 1] = string.format("duration: %.1f", r.duration) end
+  for _, key in ipairs({ "language", "engine", "model" }) do
+    if type(r[key]) == "string" and r[key] ~= "" then lines[#lines + 1] = key .. ": " .. json_string(r[key]) end
+  end
+  local speakers, seen = {}, {}
+  for _, g in ipairs(groups) do
+    if g.speaker and not seen[g.speaker] then seen[g.speaker] = true; speakers[#speakers + 1] = g.speaker end
+  end
+  if #speakers > 0 then
+    lines[#lines + 1] = "speakers:"
+    for _, sp in ipairs(speakers) do lines[#lines + 1] = "  - " .. json_string(sp) end
+  end
+  lines[#lines + 1] = "tags:"
+  lines[#lines + 1] = "  - typewhisper"
+  lines[#lines + 1] = "---"
+  lines[#lines + 1] = ""
+
+  if kind == "none" then
+    lines[#lines + 1] = trim(r.text)
+    return table.concat(lines, "\n") .. "\n"
+  end
+  local paragraphs, current = {}, nil
+  for _, g in ipairs(groups) do
+    if not current or g.speaker ~= current.speaker or g.start - current.start > MARKDOWN_PARAGRAPH_SECONDS then
+      current = { start = g.start, speaker = g.speaker, texts = {} }
+      paragraphs[#paragraphs + 1] = current
+    end
+    current.texts[#current.texts + 1] = g.text
+  end
+  for i, p in ipairs(paragraphs) do
+    if i > 1 then lines[#lines + 1] = "" end
+    lines[#lines + 1] = "**[" .. timestamp(p.start) .. "]" .. (p.speaker and (" " .. p.speaker .. ":") or "") ..
+      "** " .. table.concat(p.texts, " ")
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
 ------------------------------------------------------------------------
 -- Items
 ------------------------------------------------------------------------
@@ -705,22 +795,56 @@ local function main()
             "The text is in the transcript file."
         end
 
+        local stem = strip_extension(basename(job.path))
+        local latest = cache_dir .. "/latest/" .. basename(job.path)
+        local timestamps_path
         if job.raw then
           reaper.RecursiveCreateDirectory(cache_dir .. "/latest", 0)
-          write_file(cache_dir .. "/latest/" .. basename(job.path) .. ".json", job.raw)
+          write_file(latest .. ".json", job.raw)
+          timestamps_path = latest .. ".json"
+          if WRITE_TIMESTAMPS_NEXT_TO_RECORDING and kind == "words" then
+            local beside = dirname(job.path) .. "/" .. stem .. ".timestamps.json"
+            if read_file(beside) == job.raw or write_file(beside, job.raw) then
+              timestamps_path = beside
+            else
+              warnings[#warnings + 1] = basename(job.path) .. ": cannot write the word timestamps next to " ..
+                "the recording (read-only folder?). They are in the project's TypeWhisper folder."
+            end
+          end
         end
+        local groups = (kind == "none") and {} or build_groups(units)
 
         if WRITE_TRANSCRIPT_FILES then
           local lines = {}
           if kind == "none" then
             lines[1] = trim(job.result.text)
           else
-            for _, g in ipairs(build_groups(units)) do
+            for _, g in ipairs(groups) do
               lines[#lines + 1] = "[" .. timestamp(g.start) .. "] " .. labeled(g)
             end
           end
-          write_file(dir .. "/" .. strip_extension(basename(job.path)) .. " - transcript.txt",
-            table.concat(lines, "\n") .. "\n")
+          local name = stem .. " - transcript.txt"
+          -- Transcripts from before the copy count as edited when they have [[ ]] marks.
+          local state = write_unless_edited(dir .. "/" .. name, table.concat(lines, "\n") .. "\n", latest .. ".txt",
+            function(old) return old:find("[[", 1, true) ~= nil end)
+          if state == "kept" then
+            warnings[#warnings + 1] = name .. ": kept as you edited it (for example with [[ ]] marks). " ..
+              "Rename or delete it to get the new transcript."
+          end
+        end
+
+        if MARKDOWN_FOLDER ~= "" then
+          local folder = expand_home(MARKDOWN_FOLDER)
+          reaper.RecursiveCreateDirectory(folder, 0)
+          local name = stem .. " - transcript.md"
+          local state = write_unless_edited(folder .. "/" .. name,
+            markdown_transcript(job, groups, kind, timestamps_path), latest .. ".md",
+            function() return true end)
+          if state == "kept" then
+            warnings[#warnings + 1] = name .. ": kept as you edited it. Rename or delete it to get the new transcript."
+          elseif state == "failed" then
+            warnings[#warnings + 1] = name .. ": cannot write to MARKDOWN_FOLDER (" .. folder .. ")."
+          end
         end
 
         for _, entry in ipairs(job.entries) do

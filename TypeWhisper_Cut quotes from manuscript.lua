@@ -1,7 +1,16 @@
 -- @description TypeWhisper: Cut quotes from manuscript
--- @version 0.1.0
+-- @version 0.2.0
 -- @author Marcus Schuler, TypeWhisper
 -- @website https://www.typewhisper.com
+-- @changelog
+--   0.2.0
+--   - Finds the interview through the manuscript's frontmatter: a link to the
+--     transcript note, such as interview: "[[MixPre-001 - transcript]]", whose
+--     frontmatter names the recording (audio:) and its word timestamps (timestamps:).
+--     Works in an empty project; the recording does not need to be in it.
+--   - Also finds word timestamps next to the recording ("<recording>.timestamps.json").
+--   0.1.0
+--   - First version.
 -- @about
 --   Cuts the quotes of a radio or podcast manuscript into finished quotes, in the order
 --   of the manuscript. Write the manuscript in Obsidian, any Markdown editor or as plain
@@ -18,9 +27,18 @@
 --   Small differences to what was said, such as a corrected name, are fine; the report
 --   lists them, so the manuscript can be brought in line.
 --
---   Needs the interview transcribed with "TypeWhisper: Transcribe selected items"
---   (0.2.1 or later) in this project, which keeps the word timestamps in
---   TypeWhisper/latest/ next to the project, and lib/quotes.lua next to this script.
+--   Where the interview comes from, in this order:
+--   1. The manuscript's frontmatter links the transcript note, for example
+--        interview: "[[MixPre-001 - transcript]]"
+--      and the note's frontmatter names the recording and its word timestamps:
+--        audio: "/Volumes/MixPre/MixPre-001.wav"
+--        timestamps: "/Volumes/MixPre/MixPre-001.timestamps.json"
+--      TypeWhisper and "Transcribe selected items" (MARKDOWN_FOLDER) write such notes.
+--      The recording does not need to be in the project.
+--   2. Recordings in this project with word timestamps next to them
+--      ("<recording>.timestamps.json") or from "Transcribe selected items" in this
+--      project (TypeWhisper/latest/).
+--   Needs lib/quotes.lua next to this script.
 --   Run it again after editing the manuscript: it replaces the quotes it made before
 --   and leaves everything else alone.
 
@@ -125,14 +143,159 @@ local function bare(text)
   return Q.trim(text)
 end
 
--- Word timestamps of every recording in the project that the transcribe script has seen.
-local function recordings_with_words(dir)
-  local list = {}
-  for _, rec in ipairs(Q.recordings()) do
-    rec.words = Q.load_words(dir, rec)
-    if rec.words then list[#list + 1] = rec end
+------------------------------------------------------------------------
+-- Frontmatter links: manuscript -> transcript note -> recording and timestamps
+------------------------------------------------------------------------
+
+local function exists(path)
+  local f = io.open(path, "rb")
+  if not f then return false end
+  f:close()
+  return true
+end
+
+local function expand_home(path)
+  if path:sub(1, 2) == "~/" then return (os.getenv("HOME") or "") .. path:sub(2) end
+  return path
+end
+
+-- The frontmatter of a Markdown text, between the first two "---" lines, or nil.
+local function frontmatter(text)
+  return (text:gsub("\r\n", "\n")):match("^%-%-%-\n(.-)\n%-%-%-")
+end
+
+-- A single value of the frontmatter, unquoted: key: "value", key: 'value' or key: value.
+local function frontmatter_value(fm, key)
+  local raw = ("\n" .. fm):match("\n" .. key .. ":[ \t]*([^\n]*)")
+  if not raw then return nil end
+  raw = Q.trim(raw)
+  if raw:sub(1, 1) == '"' then
+    local ok, value = pcall(Q.json_decode, raw)
+    raw = (ok and type(value) == "string") and value or raw:sub(2, -2)
+  elseif raw:sub(1, 1) == "'" then
+    raw = raw:sub(2, -2):gsub("''", "'")
+  else
+    raw = raw:gsub("%s+#.*$", "")
   end
-  return list
+  raw = Q.trim(raw)
+  return raw ~= "" and expand_home(raw) or nil
+end
+
+-- The Obsidian vault a file is in: the nearest folder above it with a .obsidian folder.
+local function vault_root(dir)
+  while dir and dir ~= "" do
+    reaper.EnumerateSubdirectories(dir, -1)
+    local i = 0
+    while true do
+      local sub = reaper.EnumerateSubdirectories(dir, i)
+      if not sub then break end
+      if sub == ".obsidian" then return dir end
+      i = i + 1
+    end
+    local parent = dir:match("^(.*)/[^/]+$")
+    if not parent or parent == dir then break end
+    dir = parent
+  end
+  return nil
+end
+
+-- A file by name anywhere below a folder, skipping hidden folders.
+local function find_file(root, wanted, depth)
+  reaper.EnumerateFiles(root, -1)
+  local i = 0
+  while true do
+    local f = reaper.EnumerateFiles(root, i)
+    if not f then break end
+    if f:lower() == wanted then return root .. "/" .. f end
+    i = i + 1
+  end
+  if depth <= 0 then return nil end
+  i = 0
+  while true do
+    local sub = reaper.EnumerateSubdirectories(root, i)
+    if not sub then break end
+    if sub:sub(1, 1) ~= "." then
+      local found = find_file(root .. "/" .. sub, wanted, depth - 1)
+      if found then return found end
+    end
+    i = i + 1
+  end
+  return nil
+end
+
+-- The note a wikilink points to: [[name]], [[folder/name]], [[name|alias]], [[name#part]].
+local function resolve_link(link, from_dir, vault)
+  local name = Q.trim((link:gsub("|.*$", ""):gsub("#.*$", "")))
+  if name == "" then return nil end
+  local file = name:lower():match("%.md$") and name or (name .. ".md")
+  for _, base in ipairs({ from_dir, vault }) do
+    if base and exists(base .. "/" .. file) then return base .. "/" .. file end
+  end
+  return find_file(vault or from_dir, Q.basename(file):lower(), vault and 12 or 2)
+end
+
+-- The recording a note's frontmatter names, with its word timestamps. Returns nil when
+-- the note names no recording, or nil and a problem when it cannot be used.
+local function frontmatter_recording(fm, note_path)
+  local audio, stamps = frontmatter_value(fm, "audio"), frontmatter_value(fm, "timestamps")
+  if not audio and not stamps then return nil end
+  local note_dir, label = Q.dirname(note_path), Q.basename(note_path)
+  -- Moved files: also look for them by name next to the note.
+  local candidates = {}
+  if stamps then candidates[#candidates + 1] = stamps; candidates[#candidates + 1] = note_dir .. "/" .. Q.basename(stamps) end
+  if audio then
+    candidates[#candidates + 1] = Q.timestamps_beside(audio)
+    candidates[#candidates + 1] = note_dir .. "/" .. Q.strip_extension(Q.basename(audio)) .. ".timestamps.json"
+  end
+  local words, language
+  for _, path in ipairs(candidates) do
+    words, language = Q.read_words(path)
+    if words then break end
+  end
+  if not words then return nil, label .. ": no word timestamps found (" .. (stamps or Q.timestamps_beside(audio)) .. ")" end
+  if not audio then return nil, label .. ": the frontmatter names no recording (audio:)" end
+  if not exists(audio) then
+    local beside = note_dir .. "/" .. Q.basename(audio)
+    if not exists(beside) then return nil, label .. ": recording not found: " .. audio end
+    audio = beside
+  end
+  return { path = audio, words = words, language = language }
+end
+
+-- Recordings with word timestamps for a manuscript: those its frontmatter links (or
+-- names itself), then those in the project. Returns the list and problems to report.
+local function recordings_with_words(dir, file, manuscript)
+  local list, by_path, problems = {}, {}, {}
+  local function add(rec)
+    if not by_path[rec.path] then by_path[rec.path] = rec; list[#list + 1] = rec end
+  end
+  local fm = frontmatter(manuscript)
+  if fm then
+    local rec, problem = frontmatter_recording(fm, file)
+    if rec then add(rec) elseif problem then problems[#problems + 1] = problem end
+    local from_dir = Q.dirname(file)
+    local vault = vault_root(from_dir)
+    for link in fm:gmatch("%[%[(.-)%]%]") do
+      local note = resolve_link(link, from_dir, vault)
+      if not note then
+        problems[#problems + 1] = "linked note not found: [[" .. link .. "]]"
+      else
+        local note_fm = frontmatter(Q.read_file(note) or "")
+        if note_fm then
+          rec, problem = frontmatter_recording(note_fm, note)
+          if rec then add(rec) elseif problem then problems[#problems + 1] = problem end
+        end
+      end
+    end
+  end
+  for _, rec in ipairs(Q.recordings()) do
+    if by_path[rec.path] then
+      by_path[rec.path].track = by_path[rec.path].track or rec.track
+    elseif Q.load_words(dir, rec) then
+      add(rec)
+    end
+  end
+  return list, problems
 end
 
 -- Finds the parts of a quote: the first part in any recording (an exact match wins),
@@ -185,13 +348,19 @@ local function main()
     Q.msg("No quotes found in " .. Q.basename(file) .. ".\n\nPut each quote under a label line such as\n\nO-Ton Dohmke:\n„…“")
     return
   end
-  local recs = recordings_with_words(dir)
+  local recs, problems = recordings_with_words(dir, file, manuscript)
   if #recs == 0 then
-    Q.msg("No word timestamps in this project.\n\nTranscribe the interview first with \"TypeWhisper: Transcribe selected items\" (0.2.1 or later), with an engine that reports word timings (ElevenLabs Scribe, Parakeet).")
+    Q.msg("No interview with word timestamps found.\n\n" ..
+      (#problems > 0 and (table.concat(problems, "\n") .. "\n\n") or "") ..
+      "Link the transcript note in the manuscript's frontmatter, for example\n" ..
+      "interview: \"[[MixPre-001 - transcript]]\"\n\n" ..
+      "or transcribe the interview in this project with \"TypeWhisper: Transcribe selected items\", " ..
+      "with an engine that reports word timings (ElevenLabs Scribe, Parakeet).")
     return
   end
 
   local plan, notes = {}, {}
+  for _, problem in ipairs(problems) do notes[#notes + 1] = problem end
   for n, quote in ipairs(quotes) do
     local found, quote_notes = locate(quote, recs)
     for _, note in ipairs(quote_notes) do notes[#notes + 1] = "O" .. n .. " " .. quote.who .. ": " .. note end
@@ -203,7 +372,7 @@ local function main()
   end
   if #plan == 0 then Q.msg("None of the " .. #quotes .. " quotes was found.\n\n" .. table.concat(notes, "\n")); return end
 
-  local names = Q.names_for(plan[1].rec.track)
+  local names = Q.names_for(plan[1].rec)
   Q.place(plan, {
     track_name = names.track .. " – " .. Q.strip_extension(Q.basename(file)),
     mark_key = "TypeWhisper_manuscript",

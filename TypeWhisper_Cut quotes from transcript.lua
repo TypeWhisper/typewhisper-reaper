@@ -13,6 +13,8 @@
 --   - The report names cuts where the speech runs through, and shows what was said
 --     for passages matched with small differences.
 --   - Shares its code with "Cut quotes from manuscript" (lib/quotes.lua).
+--   - Also reads the word timestamps next to the recording
+--     ("<recording>.timestamps.json") when the project has none.
 -- @about
 --   Cuts the passages you marked in a transcript into finished quotes on their own
 --   track.
@@ -110,7 +112,7 @@ local function main()
     return
   end
 
-  local names = Q.names_for(plan[1].rec.track)
+  local names = Q.names_for(plan[1].rec)
   Q.place(plan, {
     track_name = names.track,
     mark_key = "TypeWhisper_quotes",
