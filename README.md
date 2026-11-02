@@ -124,7 +124,7 @@ language: "de"
 ## Changes
 
 - Transcribe selected items 0.3.0: word timestamps next to the recording (`<recording>.timestamps.json`); optional Markdown transcript for Obsidian with the recording and its timestamps in the frontmatter (`MARKDOWN_FOLDER`); keeps transcripts you edited instead of overwriting them.
-- Cut quotes from manuscript 0.2.0: finds the interview through the manuscript's frontmatter link to the transcript note, also in an empty project; also finds the timestamps next to the recording.
+- Cut quotes from manuscript 0.2.0: finds the interview through the manuscript's frontmatter link to the transcript note, also in an empty project; also finds the timestamps next to the recording. Both quote scripts warn about a cut without a pause only when the level at the cut is close to the speech, not at a short pause such as a comma.
 - Cut quotes from manuscript 0.1.0: first version, by Marcus Schuler.
 - Cut quotes from transcript 0.2.0: asks whether the quotes go into a new project tab or after everything else in the project; a new run replaces the quotes and cut markers of the last one; a cut between two close words goes into the quiet stretch of the gap, so the next word stays out even when its timing starts too late; names written as one word where the transcript has two ("TypeWhisper", "Type Whisper") are matched completely; the report shows what was said and names cuts without a pause; also reads the timestamps next to the recording when the project has none. Shares its code with the manuscript script (`lib/quotes.lua`).
 - Transcribe selected items 0.2.2: no doubled regions in projects where an early 0.2.1 variant stored region numbers without their start.

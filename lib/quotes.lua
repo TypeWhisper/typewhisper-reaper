@@ -440,17 +440,19 @@ function M.cut_end(rec, words, last)
   return cut
 end
 
--- True when speech runs through a cut point: the level right at the cut is more than
--- 20 dB above the quietest moment within a second around it. Such a cut has no pause
--- to hide in and should be listened to.
+-- True when speech runs through a cut point: the level right at the cut is close to the
+-- speech around it, less than 25 dB below the loudest moment within a second, and more
+-- than 20 dB above the quietest. Such a cut has no pause to hide in and should be
+-- listened to. A short pause inside a sentence, such as at a comma, is quiet enough.
 local function hard_cut(rec, t)
   local around = window_levels(rec, math.max(0, t - 1), t + 1)
-  local quiet, at = math.huge, 0
+  local quiet, loud, at = math.huge, 0, 0
   for _, l in ipairs(around) do
     quiet = math.min(quiet, l.rms)
+    loud = math.max(loud, l.rms)
     if l.time >= t - 0.0101 and l.time < t + 0.0099 then at = math.max(at, l.rms) end
   end
-  return #around > 0 and at > 0.002 and at > quiet * 10
+  return #around > 0 and at > 0.002 and at > quiet * 10 and at > loud * 0.056
 end
 
 ------------------------------------------------------------------------

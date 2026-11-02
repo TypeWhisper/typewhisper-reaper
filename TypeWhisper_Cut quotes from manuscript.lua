@@ -9,6 +9,8 @@
 --     frontmatter names the recording (audio:) and its word timestamps (timestamps:).
 --     Works in an empty project; the recording does not need to be in it.
 --   - Also finds word timestamps next to the recording ("<recording>.timestamps.json").
+--   - Warns about a cut without a pause only when the level at the cut is close to the
+--     speech, not at a short pause inside a sentence such as at a comma.
 --   0.1.0
 --   - First version.
 -- @about
