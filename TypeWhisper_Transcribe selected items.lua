@@ -65,9 +65,9 @@ local REGION_COLOR = reaper.ColorToNative(74, 144, 226) | 0x1000000
 -- Word timestamps as "<recording>.timestamps.json" next to the recording, where the
 -- quote scripts and the TypeWhisper app look for them.
 local WRITE_TIMESTAMPS_NEXT_TO_RECORDING = true
--- Folder for a Markdown transcript per recording, "<recording> - transcript.md", for
--- example your Obsidian vault or a folder in it: "~/Documents/Vault/Interviews".
--- Empty: no Markdown transcript.
+-- Folder for a Markdown transcript per recording, "<recording>.md" as TypeWhisper's
+-- watch folders name it, for example your Obsidian vault or a folder in it:
+-- "~/Documents/Vault/Interviews". Empty: no Markdown transcript.
 local MARKDOWN_FOLDER = ""
 local MARKDOWN_PARAGRAPH_SECONDS = 60 -- a speaker's paragraph gets a new time stamp after this
 
@@ -836,12 +836,13 @@ local function main()
         if MARKDOWN_FOLDER ~= "" then
           local folder = expand_home(MARKDOWN_FOLDER)
           reaper.RecursiveCreateDirectory(folder, 0)
-          local name = stem .. " - transcript.md"
+          local name = stem .. ".md"
           local state = write_unless_edited(folder .. "/" .. name,
             markdown_transcript(job, groups, kind, timestamps_path), latest .. ".md",
             function() return true end)
           if state == "kept" then
-            warnings[#warnings + 1] = name .. ": kept as you edited it. Rename or delete it to get the new transcript."
+            warnings[#warnings + 1] = name .. ": kept, as it was changed since this script wrote it or comes from " ..
+              "TypeWhisper. Rename or delete it to get the new transcript."
           elseif state == "failed" then
             warnings[#warnings + 1] = name .. ": cannot write to MARKDOWN_FOLDER (" .. folder .. ")."
           end

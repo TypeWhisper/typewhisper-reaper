@@ -5,7 +5,7 @@
 -- @changelog
 --   0.2.0
 --   - Finds the interview through the manuscript's frontmatter: a link to the
---     transcript note, such as interview: "[[MixPre-001 - transcript]]", whose
+--     transcript note, such as interview: "[[MixPre-001]]", whose
 --     frontmatter names the recording (audio:) and its word timestamps (timestamps:).
 --     Works in an empty project; the recording does not need to be in it.
 --   - Also finds word timestamps next to the recording ("<recording>.timestamps.json").
@@ -31,7 +31,7 @@
 --
 --   Where the interview comes from, in this order:
 --   1. The manuscript's frontmatter links the transcript note, for example
---        interview: "[[MixPre-001 - transcript]]"
+--        interview: "[[MixPre-001]]"
 --      and the note's frontmatter names the recording and its word timestamps:
 --        audio: "/Volumes/MixPre/MixPre-001.wav"
 --        timestamps: "/Volumes/MixPre/MixPre-001.timestamps.json"
@@ -355,7 +355,7 @@ local function main()
     Q.msg("No interview with word timestamps found.\n\n" ..
       (#problems > 0 and (table.concat(problems, "\n") .. "\n\n") or "") ..
       "Link the transcript note in the manuscript's frontmatter, for example\n" ..
-      "interview: \"[[MixPre-001 - transcript]]\"\n\n" ..
+      "interview: \"[[MixPre-001]]\"\n\n" ..
       "or transcribe the interview in this project with \"TypeWhisper: Transcribe selected items\", " ..
       "with an engine that reports word timings (ElevenLabs Scribe, Parakeet).")
     return

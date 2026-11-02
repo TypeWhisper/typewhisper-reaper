@@ -13,7 +13,7 @@ A ReaScript that sends the selected audio items to TypeWhisper on your Mac and a
 - A transcript file per recording (`<recording> - transcript.txt`, with timestamps and speakers) and a program text of all selected items in timeline order (`<project> - program text.txt`), both next to the project
 - Running it again replaces only the regions it created before (your own regions stay, whatever their color); unchanged files come from the cache (`TypeWhisper/` next to the project)
 - The word timestamps next to the recording as `<recording>.timestamps.json`, the same file the TypeWhisper app writes, so the quote scripts find them in any project
-- Optional: a Markdown transcript per recording for Obsidian, `<recording> - transcript.md`, in a folder you set as `MARKDOWN_FOLDER` at the top of the script, for example your vault. Its frontmatter names the recording and its timestamps; the text has a paragraph per speaker turn with time and speaker. See [Manuscript, transcript and recording](#manuscript-transcript-and-recording).
+- Optional: a Markdown transcript per recording for Obsidian, `<recording>.md` as TypeWhisper's watch folders name it, in a folder you set as `MARKDOWN_FOLDER` at the top of the script, for example your vault. Its frontmatter names the recording and its timestamps; the text has a paragraph per speaker turn with time and speaker. See [Manuscript, transcript and recording](#manuscript-transcript-and-recording).
 - A transcript you edited, for example with `[[ ]]` marks for the quote script, is kept on a new run instead of being overwritten
 
 ## Requirements
@@ -95,7 +95,7 @@ The manuscript script finds the interview through links, so it also works in an 
 
 ```markdown
 ---
-interview: "[[MixPre-001 - transcript]]"
+interview: "[[MixPre-001]]"
 ---
 ```
 
